@@ -1,0 +1,48 @@
+diff --git a/src/index.ts b/src/index.ts
+index b20f34f..7ba23c4 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -914,8 +914,11 @@ export class Minimatch {
+         // start matching at the drive letter index of each
+         if (fd.toLowerCase() === pd.toLowerCase()) {
+           pattern[pdi] = fd
+-          patternStartIndex = pdi
+-          fileStartIndex = fdi
++          // start matching AFTER the drive letter portion
++          // drive paths: 'c:/foo' -> ['c:', 'foo'], drive at idx 0, start at idx 1
++          // UNC paths: '//?/c:/foo' -> ['', '', '?', 'c:', 'foo'], drive at idx 3, start at idx 4
++          patternStartIndex = pdi + 1
++          fileStartIndex = fdi + 1
+         }
+       }
+     }
+diff --git a/test/win-path-sep.js b/test/win-path-sep.js
+index 984e223..2c0dde3 100644
+--- a/test/win-path-sep.js
++++ b/test/win-path-sep.js
+@@ -45,3 +45,25 @@ t.test('override with options', async t => {
+ 
+   t.end()
+ })
++
++t.test('drive letter paths (UNC/drive matching)', async t => {
++  process.env.__MINIMATCH_TESTING_PLATFORM__ = 'win32'
++  const { minimatch: mm } = await t.mockImport('../dist/esm/index.js', {})
++
++  // drive-letter absolute paths match when same root (case-insensitive)
++  t.equal(mm('c:/foo', 'c:/foo'), true, 'same drive same path')
++  t.equal(mm('C:/foo', 'c:/foo'), true, 'case-insensitive drive letter')
++  t.equal(mm('c:/foo', 'C:/foo'), true, 'case-insensitive drive letter 2')
++  t.equal(mm('c:/foo', 'd:/foo'), false, 'different drive letters')
++
++  // drive paths mixed with UNC paths
++  t.equal(mm('//?/c:/foo', 'c:/foo'), true, 'UNC drive matches plain drive')
++  t.equal(mm('c:/foo', '//?/c:/foo'), true, 'plain drive matches UNC drive')
++  t.equal(mm('//?/C:/foo', '//?/c:/foo'), true, 'UNC case-insensitive drive')
++
++  // globstar under drive letter works
++  t.equal(mm('c:/temp/file', 'c:/**'), true, 'c:/** matches c:/temp/file')
++  t.equal(mm('c:/temp/file', 'c:/*/*'), true, 'c:/*/* matches c:/temp/file')
++
++  t.end()
++})

@@ -914,8 +914,11 @@ export class Minimatch {
         // start matching at the drive letter index of each
         if (fd.toLowerCase() === pd.toLowerCase()) {
           pattern[pdi] = fd
-          patternStartIndex = pdi
-          fileStartIndex = fdi
+          // start matching AFTER the drive letter portion
+          // drive paths: 'c:/foo' -> ['c:', 'foo'], drive at idx 0, start at idx 1
+          // UNC paths: '//?/c:/foo' -> ['', '', '?', 'c:', 'foo'], drive at idx 3, start at idx 4
+          patternStartIndex = pdi + 1
+          fileStartIndex = fdi + 1
         }
       }
     }
