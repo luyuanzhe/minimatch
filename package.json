@@ -35,7 +35,7 @@
     "test": "tap",
     "snap": "tap",
     "format": "prettier --write .",
-    "benchmark": "node benchmark/index.js",
+    "benchmark": "node benchmark.js",
     "typedoc": "typedoc --tsconfig .tshy/esm.json ./src/*.ts",
     "lint": "oxlint --fix src test",
     "postsnap": "npm run lint",
