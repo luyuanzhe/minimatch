@@ -1392,13 +1392,19 @@ export class Minimatch {
   }
 
   slashSplit(p: string) {
+    const isAbsoluteDrive = /^[a-zA-Z]:[/\\]/.test(p)
+
     // if p starts with // on windows, we preserve that
     // so that UNC paths aren't broken.  Otherwise, any number of
     // / characters are coalesced into one, unless
     // preserveMultipleSlashes is set to true.
     if (this.preserveMultipleSlashes) {
       return p.split('/')
-    } else if (this.isWindows && /^\/\/[^/]+/.test(p)) {
+    } else if (
+      this.isWindows &&
+      !isAbsoluteDrive &&
+      /^\/\/[^/]+/.test(p)
+    ) {
       // add an extra '' for the one we lose
       return ['', ...p.split(/\/+/)]
     } else {
