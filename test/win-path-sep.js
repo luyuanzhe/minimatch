@@ -45,3 +45,10 @@ t.test('override with options', async t => {
 
   t.end()
 })
+
+t.test('drive letter with forward slash and *', async t => {
+  process.env.__MINIMATCH_TESTING_PLATFORM__ = 'win32'
+  const { minimatch: mm } = await t.mockImport('../dist/esm/index.js', {})
+  t.equal(mm('c:/temp/file', 'c:/*'), true)
+  t.end()
+})

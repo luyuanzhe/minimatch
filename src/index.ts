@@ -918,6 +918,25 @@ export class Minimatch {
           fileStartIndex = fdi
         }
       }
+
+      if (
+        fileDrive &&
+        !fileUNC &&
+        patternDrive &&
+        !patternUNC &&
+        file.length > pattern.length
+      ) {
+        const lastPattern = pattern[pattern.length - 1]
+        if (
+          typeof lastPattern !== 'string' &&
+          lastPattern !== GLOBSTAR
+        ) {
+          pattern = pattern.slice()
+          while (pattern.length < file.length) {
+            pattern.push(lastPattern)
+          }
+        }
+      }
     }
 
     // resolve and reduce . and .. portions in the file as well.
@@ -1398,7 +1417,11 @@ export class Minimatch {
     // preserveMultipleSlashes is set to true.
     if (this.preserveMultipleSlashes) {
       return p.split('/')
-    } else if (this.isWindows && /^\/\/[^/]+/.test(p)) {
+    } else if (
+      this.isWindows &&
+      /^\/\/[^/]+/.test(p) &&
+      !/^[a-zA-Z]:[/\\]/.test(p)
+    ) {
       // add an extra '' for the one we lose
       return ['', ...p.split(/\/+/)]
     } else {
