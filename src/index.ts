@@ -879,9 +879,13 @@ export class Minimatch {
     // Drive letters in absolute drive or unc paths are always compared
     // case-insensitively.
     if (this.isWindows) {
+      // 增加判断：如果路径符合 /^[a-zA-Z]:[/\\]/ 格式（Windows 驱动器字母绝对路径），则跳过 UNC 分支
+      const isWindowsAbsoluteDrive = /^[a-zA-Z]:[/\\]/.test(file.join('/'));
+      
       const fileDrive =
         typeof file[0] === 'string' && /^[a-z]:$/i.test(file[0])
       const fileUNC =
+        !isWindowsAbsoluteDrive &&
         !fileDrive &&
         file[0] === '' &&
         file[1] === '' &&

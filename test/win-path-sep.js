@@ -45,3 +45,12 @@ t.test('override with options', async t => {
 
   t.end()
 })
+
+t.test('win drive absolute path', async t => {
+  process.env.__MINIMATCH_TESTING_PLATFORM__ = 'win32'
+  const { minimatch: mm } = await t.mockImport('../dist/esm/index.js', {})
+  // In order for c:/* to match c:/temp/file, partial matching is required
+  // as * only matches a single path portion.
+  t.equal(mm('c:/temp/file', 'c:/*', { partial: true }), true)
+  t.end()
+})
