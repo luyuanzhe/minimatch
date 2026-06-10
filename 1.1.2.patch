@@ -1,0 +1,43 @@
+diff --git a/run-test.js b/run-test.js
+new file mode 100644
+index 0000000..b3ce007
+--- /dev/null
++++ b/run-test.js
+@@ -0,0 +1,2 @@
++import { minimatch } from './dist/esm/index.js'
++console.log(minimatch('c:/temp/file', 'c:/*'))
+diff --git a/src/index.ts b/src/index.ts
+index b20f34f..fc9fe55 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -879,9 +879,13 @@ export class Minimatch {
+     // Drive letters in absolute drive or unc paths are always compared
+     // case-insensitively.
+     if (this.isWindows) {
++      // 增加判断：如果路径符合 /^[a-zA-Z]:[/\\]/ 格式（Windows 驱动器字母绝对路径），则跳过 UNC 分支
++      const isWindowsAbsoluteDrive = /^[a-zA-Z]:[/\\]/.test(file.join('/'));
++      
+       const fileDrive =
+         typeof file[0] === 'string' && /^[a-z]:$/i.test(file[0])
+       const fileUNC =
++        !isWindowsAbsoluteDrive &&
+         !fileDrive &&
+         file[0] === '' &&
+         file[1] === '' &&
+diff --git a/test/win-path-sep.js b/test/win-path-sep.js
+index 984e223..85fc294 100644
+--- a/test/win-path-sep.js
++++ b/test/win-path-sep.js
+@@ -45,3 +45,12 @@ t.test('override with options', async t => {
+ 
+   t.end()
+ })
++
++t.test('win drive absolute path', async t => {
++  process.env.__MINIMATCH_TESTING_PLATFORM__ = 'win32'
++  const { minimatch: mm } = await t.mockImport('../dist/esm/index.js', {})
++  // In order for c:/* to match c:/temp/file, partial matching is required
++  // as * only matches a single path portion.
++  t.equal(mm('c:/temp/file', 'c:/*', { partial: true }), true)
++  t.end()
++})
