@@ -385,6 +385,27 @@ export type MMRegExp = RegExp & {
 export type ParseReturnFiltered = string | MMRegExp | typeof GLOBSTAR
 export type ParseReturn = ParseReturnFiltered | false
 
+export type OptimizationPhase =
+  | 'braceExpand'
+  | 'firstPreprocess'
+  | 'secondPreprocess'
+  | 'finalSet'
+
+export interface OptimizationStep {
+  phase: OptimizationPhase
+  input: string[]
+  output: string[]
+  description: string
+}
+
+export interface OptimizationPlan {
+  originalPattern: string
+  optimizationLevel: number
+  steps: OptimizationStep[]
+  finalSet: string[][]
+  regexp: RegExp | null
+}
+
 export class Minimatch {
   options: MinimatchOptions
   set: ParseReturnFiltered[][]
@@ -1474,6 +1495,139 @@ export class Minimatch {
     return minimatch.defaults(def).Minimatch
   }
 }
+/**
+ * Return a plan describing how the pattern would be optimized at each
+ * stage. Useful for debugging the behaviour of the `optimizationLevel`
+ * option without having to instrument the internal `Minimatch` state.
+ */
+export const getOptimizationPlan = (
+  pattern: string,
+  options: MinimatchOptions = {},
+): OptimizationPlan => {
+  assertValidPattern(pattern)
+
+  // Build a "light" Minimatch instance only so we can re-use all of its
+  // private/protected helpers (slash split, preprocess phases, ...) and
+  // still get the full `set` + `regexp` produced by the real pipeline.
+  const mm = new Minimatch(pattern, options)
+
+  const optimizationLevel = options.optimizationLevel ?? 1
+
+  // Phase 1: brace expansion. Input is the (negate-normalised) pattern,
+  // output is the list of strings produced by expanding `{a,b}` style
+  // braces.
+  const bracePattern = mm.pattern
+  const braceInput = [bracePattern]
+  const rawBraceOutput = braceExpand(bracePattern, options)
+  const braceOutput = [...new Set(rawBraceOutput)]
+
+  // Split the brace-expanded set into path parts so that the remaining
+  // phases can be described in the same (string[]) units.
+  const splitParts = braceOutput.map(s => mm.slashSplit(s))
+
+  // Phase 2: run preprocess on a *clone* so that we can observe the
+  // before/after state at each optimisation step. The real `preprocess`
+  // method mutates its input, so we feed in deep copies to keep the
+  // recorded inputs honest.
+  const preprocessInput = splitParts.map(p => p.slice())
+  let preprocessOutput: string[][]
+
+  const steps: OptimizationStep = [
+    {
+      phase: 'braceExpand',
+      input: braceInput,
+      output: braceOutput,
+      description:
+        'Expand `{a,b}` style braces and dedupe the resulting patterns.',
+    },
+  ]
+
+  if (optimizationLevel >= 2) {
+    const firstInput = preprocessInput.map(p => p.slice())
+    const firstOutput = mm.firstPhasePreProcess(
+      preprocessInput.map(p => p.slice()),
+    )
+    steps.push({
+      phase: 'firstPreprocess',
+      input: firstInput.map(p => p.join('/')),
+      output: firstOutput.map(p => p.join('/')),
+      description:
+        'Level-2 single-pattern optimisations: collapse `**/**`, ' +
+        'resolve `<pre>/<p>/../<rest>`, split `**/..` branches, ' +
+        'and squeeze empty/dot path portions.',
+    })
+
+    const secondInput = firstOutput.map(p => p.slice())
+    const secondOutput = mm.secondPhasePreProcess(
+      secondInput.map(p => p.slice()),
+    )
+    steps.push({
+      phase: 'secondPreprocess',
+      input: secondInput.map(p => p.join('/')),
+      output: secondOutput.map(p => p.join('/')),
+      description:
+        'Level-2 cross-pattern dedupe: merge pairs of patterns into a ' +
+        'single one when one subsumes the other (for example ' +
+        '`{<pre>/*/<rest>, <pre>/<p>/<rest>}` collapses into ' +
+        '`<pre>/*/<rest>`).',
+    })
+    preprocessOutput = secondOutput
+  } else if (optimizationLevel >= 1) {
+    const level1Input = preprocessInput.map(p => p.slice())
+    const level1Output = mm.levelOneOptimize(
+      preprocessInput.map(p => p.slice()),
+    )
+    steps.push({
+      phase: 'firstPreprocess',
+      input: level1Input.map(p => p.join('/')),
+      output: level1Output.map(p => p.join('/')),
+      description:
+        'Level-1 optimisations: collapse adjacent `**` portions and ' +
+        'resolve simple `<p>/..` walks.',
+    })
+    preprocessOutput = level1Output
+  } else {
+    const adjInput = preprocessInput.map(p => p.slice())
+    const adjOutput = mm.adjascentGlobstarOptimize(
+      preprocessInput.map(p => p.slice()),
+    )
+    steps.push({
+      phase: 'firstPreprocess',
+      input: adjInput.map(p => p.join('/')),
+      output: adjOutput.map(p => p.join('/')),
+      description:
+        'Level-0: only collapse adjacent `**` portions into a single one.',
+    })
+    preprocessOutput = adjOutput
+  }
+
+  // Phase 3: the "final" set (after make() has run). This is what the
+  // caller would actually use for matching.
+  steps.push({
+    phase: 'finalSet',
+    input: preprocessOutput.map(p => p.join('/')),
+    output: mm.globParts.map(p => p.join('/')),
+    description:
+      'Pattern parts produced by `Minimatch.make()` after parsing into ' +
+      'strings / RegExps / GLOBSTAR and discarding patterns that failed ' +
+      'to parse.',
+  })
+
+  const regexp = (() => {
+    const r = mm.makeRe()
+    return r && r instanceof RegExp ? r : null
+  })()
+
+  return {
+    originalPattern: pattern,
+    optimizationLevel,
+    steps,
+    finalSet: mm.globParts.map(p => p.slice()),
+    regexp,
+  }
+}
+minimatch.getOptimizationPlan = getOptimizationPlan
+
 /* c8 ignore start */
 export { AST } from './ast.js'
 export { escape } from './escape.js'
