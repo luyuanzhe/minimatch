@@ -69,6 +69,13 @@ export interface MinimatchOptions {
   /** do not collapse multiple `/` into a single `/` */
   preserveMultipleSlashes?: boolean
   /**
+   * When set to `true`, pattern `/` only matches `/` in the file path.
+   * That is, the default behavior of converting `\` to `/` in file paths
+   * on Windows platforms is disabled. This is useful on Windows when you
+   * want to distinguish between `/` and `\` as path separators.
+   */
+  strictSlashes?: boolean
+  /**
    * A number indicating the level of optimization that should be done
    * to the pattern prior to parsing and using it for matches.
    */
@@ -405,6 +412,7 @@ export class Minimatch {
   platform: Platform
   windowsNoMagicRoot: boolean
   maxGlobstarRecursion: number
+  strictSlashes: boolean
 
   regexp: false | null | MMRegExp
   constructor(pattern: string, options: MinimatchOptions = {}) {
@@ -435,6 +443,7 @@ export class Minimatch {
       options.windowsNoMagicRoot !== undefined ?
         options.windowsNoMagicRoot
       : !!(this.isWindows && this.nocase)
+    this.strictSlashes = !!options.strictSlashes
 
     this.globSet = []
     this.globParts = []
@@ -1424,7 +1433,7 @@ export class Minimatch {
     const options = this.options
 
     // windows: need to use /, not \
-    if (this.isWindows) {
+    if (this.isWindows && !this.strictSlashes) {
       f = f.split('\\').join('/')
     }
 

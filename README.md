@@ -370,6 +370,19 @@ That is, a pattern like `a///b` will match the file path `a/b`.
 
 Set `preserveMultipleSlashes: true` to suppress this behavior.
 
+### strictSlashes
+
+By default on Windows (`platform: 'win32'`), `\` characters in
+the file path to test are treated as `/`, so that a pattern like
+`a/b/c` will match the Windows path `a\b\c`.
+
+Set `strictSlashes: true` to disable this conversion. In this
+mode, `/` in the pattern will only match `/` in the file path,
+and `\` characters will be preserved (and thus will not match
+`/`).
+
+This option has no effect on POSIX platforms.
+
 ### optimizationLevel
 
 A number indicating the level of optimization that should be done
