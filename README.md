@@ -350,6 +350,13 @@ paths](#windows).
 For legacy reasons, this is also set if
 `options.allowWindowsEscape` is set to the exact value `false`.
 
+### strictSlashes
+
+When set, `/` in a pattern only matches `/` in the file path. On
+Windows platforms, this disables the default behavior of treating
+`\\` as `/` for file path comparison, so a path like `a\\b\\c`
+will not match the pattern `a/b/c`.
+
 ### windowsNoMagicRoot
 
 When a pattern starts with a UNC path or drive letter, and in

@@ -33,6 +33,8 @@ export interface MinimatchOptions {
   noext?: boolean
   /** return the pattern if nothing matches */
   nonull?: boolean
+  /** only treat `/` as a path separator when matching paths */
+  strictSlashes?: boolean
   /** treat `\\` as a path separator, not an escape character */
   windowsPathsNoEscape?: boolean
   /**
@@ -396,6 +398,7 @@ export class Minimatch {
   comment: boolean
   empty: boolean
   preserveMultipleSlashes: boolean
+  strictSlashes: boolean
   partial: boolean
   globSet: string[]
   globParts: string[][]
@@ -424,6 +427,7 @@ export class Minimatch {
       this.pattern = this.pattern.replace(/\\/g, '/')
     }
     this.preserveMultipleSlashes = !!options.preserveMultipleSlashes
+    this.strictSlashes = !!options.strictSlashes
     this.regexp = null
     this.negate = false
     this.nonegate = !!options.nonegate
@@ -1424,7 +1428,7 @@ export class Minimatch {
     const options = this.options
 
     // windows: need to use /, not \
-    if (this.isWindows) {
+    if (this.isWindows && !this.strictSlashes) {
       f = f.split('\\').join('/')
     }
 
