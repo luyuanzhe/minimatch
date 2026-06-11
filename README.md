@@ -433,6 +433,24 @@ separators in file paths for comparison.)
 
 Defaults to the value of `process.platform`.
 
+### strictSlashes
+
+When `true`, `/` in patterns only matches the POSIX path separator `/`,
+and does not match the Windows path separator `\`. This disables the
+default behavior where `\` is converted to `/` on Windows platforms.
+
+This is useful when you need strict POSIX-style matching on Windows,
+ensuring that patterns with `/` only match paths that actually contain
+`/` characters.
+
+For example:
+
+```js
+minimatch('a\\b\\c', 'a/b/c', { strictSlashes: true }) // false
+minimatch('a\\b\\c', 'a/b/c', { strictSlashes: false }) // true (default)
+minimatch('a/b/c', 'a/b/c', { strictSlashes: true }) // true
+```
+
 ### maxGlobstarRecursion
 
 Max number of non-adjacent `**` patterns to recursively walk

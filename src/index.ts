@@ -118,6 +118,13 @@ export interface MinimatchOptions {
    * performance.
    */
   maxExtglobRecursion?: number
+  /**
+   * When `true`, `/` in patterns only matches POSIX path separator `/`,
+   * and does not match Windows path separator `\`. Disables the default
+   * `\` → `/` conversion on Windows. Useful for strict POSIX-style
+   * matching on Windows platforms.
+   */
+  strictSlashes?: boolean
 }
 
 export const minimatch = (
@@ -405,6 +412,7 @@ export class Minimatch {
   platform: Platform
   windowsNoMagicRoot: boolean
   maxGlobstarRecursion: number
+  strictSlashes: boolean
 
   regexp: false | null | MMRegExp
   constructor(pattern: string, options: MinimatchOptions = {}) {
@@ -420,7 +428,8 @@ export class Minimatch {
     const awe = ('allowWindow' + 'sEscape') as keyof MinimatchOptions
     this.windowsPathsNoEscape =
       !!options.windowsPathsNoEscape || options[awe] === false
-    if (this.windowsPathsNoEscape) {
+    this.strictSlashes = !!options.strictSlashes
+    if (this.windowsPathsNoEscape && !this.strictSlashes) {
       this.pattern = this.pattern.replace(/\\/g, '/')
     }
     this.preserveMultipleSlashes = !!options.preserveMultipleSlashes
@@ -1424,7 +1433,7 @@ export class Minimatch {
     const options = this.options
 
     // windows: need to use /, not \
-    if (this.isWindows) {
+    if (this.isWindows && !this.strictSlashes) {
       f = f.split('\\').join('/')
     }
 
