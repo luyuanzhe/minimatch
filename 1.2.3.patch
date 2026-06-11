@@ -1,0 +1,68 @@
+diff --git a/README.md b/README.md
+index 1a068fa..481694b 100644
+--- a/README.md
++++ b/README.md
+@@ -370,6 +370,18 @@ That is, a pattern like `a///b` will match the file path `a/b`.
+ 
+ Set `preserveMultipleSlashes: true` to suppress this behavior.
+ 
++### strictSlashes
++
++When `true`, `/` in patterns only matches the POSIX path
++separator `/`, and will **not** match the Windows path separator
++`\`. This disables the default behavior of treating `\` as `/` on
++Windows platforms.
++
++This is useful when you need a strict distinction between
++POSIX and Windows path separators in matching.
++
++Default: `false`.
++
+ ### optimizationLevel
+ 
+ A number indicating the level of optimization that should be done
+diff --git a/src/index.ts b/src/index.ts
+index b20f34f..7c2fb15 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -118,6 +118,15 @@ export interface MinimatchOptions {
+    * performance.
+    */
+   maxExtglobRecursion?: number
++  /**
++   * When true, `/` in patterns only matches POSIX path separator `/`,
++   * and will not match Windows `\\`. This disables the default behavior
++   * of converting `\\` to `/` on Windows platforms.
++   *
++   * This is useful on Windows when you want a strict distinction
++   * between `/` and `\\` in path matching.
++   */
++  strictSlashes?: boolean
+ }
+ 
+ export const minimatch = (
+@@ -396,6 +405,7 @@ export class Minimatch {
+   comment: boolean
+   empty: boolean
+   preserveMultipleSlashes: boolean
++  strictSlashes: boolean
+   partial: boolean
+   globSet: string[]
+   globParts: string[][]
+@@ -424,6 +434,7 @@ export class Minimatch {
+       this.pattern = this.pattern.replace(/\\/g, '/')
+     }
+     this.preserveMultipleSlashes = !!options.preserveMultipleSlashes
++    this.strictSlashes = !!options.strictSlashes
+     this.regexp = null
+     this.negate = false
+     this.nonegate = !!options.nonegate
+@@ -1424,7 +1435,7 @@ export class Minimatch {
+     const options = this.options
+ 
+     // windows: need to use /, not \
+-    if (this.isWindows) {
++    if (this.isWindows && !this.strictSlashes) {
+       f = f.split('\\').join('/')
+     }
+ 

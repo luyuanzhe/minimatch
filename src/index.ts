@@ -118,6 +118,15 @@ export interface MinimatchOptions {
    * performance.
    */
   maxExtglobRecursion?: number
+  /**
+   * When true, `/` in patterns only matches POSIX path separator `/`,
+   * and will not match Windows `\\`. This disables the default behavior
+   * of converting `\\` to `/` on Windows platforms.
+   *
+   * This is useful on Windows when you want a strict distinction
+   * between `/` and `\\` in path matching.
+   */
+  strictSlashes?: boolean
 }
 
 export const minimatch = (
@@ -396,6 +405,7 @@ export class Minimatch {
   comment: boolean
   empty: boolean
   preserveMultipleSlashes: boolean
+  strictSlashes: boolean
   partial: boolean
   globSet: string[]
   globParts: string[][]
@@ -424,6 +434,7 @@ export class Minimatch {
       this.pattern = this.pattern.replace(/\\/g, '/')
     }
     this.preserveMultipleSlashes = !!options.preserveMultipleSlashes
+    this.strictSlashes = !!options.strictSlashes
     this.regexp = null
     this.negate = false
     this.nonegate = !!options.nonegate
@@ -1424,7 +1435,7 @@ export class Minimatch {
     const options = this.options
 
     // windows: need to use /, not \
-    if (this.isWindows) {
+    if (this.isWindows && !this.strictSlashes) {
       f = f.split('\\').join('/')
     }
 

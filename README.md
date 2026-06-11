@@ -370,6 +370,18 @@ That is, a pattern like `a///b` will match the file path `a/b`.
 
 Set `preserveMultipleSlashes: true` to suppress this behavior.
 
+### strictSlashes
+
+When `true`, `/` in patterns only matches the POSIX path
+separator `/`, and will **not** match the Windows path separator
+`\`. This disables the default behavior of treating `\` as `/` on
+Windows platforms.
+
+This is useful when you need a strict distinction between
+POSIX and Windows path separators in matching.
+
+Default: `false`.
+
 ### optimizationLevel
 
 A number indicating the level of optimization that should be done
