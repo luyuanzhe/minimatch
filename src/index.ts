@@ -1398,6 +1398,8 @@ export class Minimatch {
     // preserveMultipleSlashes is set to true.
     if (this.preserveMultipleSlashes) {
       return p.split('/')
+    } else if (this.isWindows && /^[a-zA-Z]:[/\\]/.test(p)) {
+      return p.split(/\/+/)
     } else if (this.isWindows && /^\/\/[^/]+/.test(p)) {
       // add an extra '' for the one we lose
       return ['', ...p.split(/\/+/)]

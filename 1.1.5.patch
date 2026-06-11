@@ -1,0 +1,28 @@
+diff --git a/src/index.ts b/src/index.ts
+index b20f34f..def82df 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1398,6 +1398,8 @@ export class Minimatch {
+     // preserveMultipleSlashes is set to true.
+     if (this.preserveMultipleSlashes) {
+       return p.split('/')
++    } else if (this.isWindows && /^[a-zA-Z]:[/\\]/.test(p)) {
++      return p.split(/\/+/)
+     } else if (this.isWindows && /^\/\/[^/]+/.test(p)) {
+       // add an extra '' for the one we lose
+       return ['', ...p.split(/\/+/)]
+diff --git a/test/win-path-sep.js b/test/win-path-sep.js
+index 984e223..f29b44c 100644
+--- a/test/win-path-sep.js
++++ b/test/win-path-sep.js
+@@ -45,3 +45,10 @@ t.test('override with options', async t => {
+ 
+   t.end()
+ })
++
++t.test('drive letter path not misidentified as UNC', async t => {
++  process.env.__MINIMATCH_TESTING_PLATFORM__ = 'win32'
++  const { minimatch: mm } = await t.mockImport('../dist/esm/index.js', {})
++  t.equal(mm('c:/temp/file', 'c:/*'), true)
++  t.end()
++})
