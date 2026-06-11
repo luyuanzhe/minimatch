@@ -309,6 +309,11 @@ export const defaults = (def: MinimatchOptions): typeof minimatch => {
       options: MinimatchOptions = {},
     ) => orig.match(list, pattern, ext(def, options)),
 
+    getOptimizationPlan: (
+      pattern: string,
+      options: MinimatchOptions = {},
+    ) => orig.getOptimizationPlan(pattern, ext(def, options)),
+
     sep: orig.sep,
     GLOBSTAR: GLOBSTAR as typeof GLOBSTAR,
   })
@@ -371,6 +376,77 @@ export const match = (
   return list
 }
 minimatch.match = match
+
+export const getOptimizationPlan = (
+  pattern: string,
+  options: MinimatchOptions = {},
+) => {
+  const steps: Array<{
+    phase: 'braceExpand' | 'firstPreprocess' | 'secondPreprocess' | 'finalSet';
+    input: string[];
+    output: string[];
+    description: string;
+  }> = []
+
+  class PlanMinimatch extends Minimatch {
+    braceExpand() {
+      const input = [this.pattern]
+      const output = super.braceExpand()
+      steps.push({
+        phase: 'braceExpand',
+        input,
+        output: [...new Set<string>(output)],
+        description: 'Expanded brace patterns',
+      })
+      return output
+    }
+
+    firstPhasePreProcess(globParts: string[][]) {
+      const input = globParts.map(parts => parts.join('/'))
+      const outputParts = super.firstPhasePreProcess(globParts)
+      const output = outputParts.map(parts => parts.join('/'))
+      steps.push({
+        phase: 'firstPreprocess',
+        input,
+        output,
+        description: 'Removed unnecessary ** and .. parts',
+      })
+      return outputParts
+    }
+
+    secondPhasePreProcess(globParts: string[][]) {
+      const input = globParts.map(parts => parts.join('/'))
+      const outputParts = super.secondPhasePreProcess(globParts)
+      const output = outputParts.map(parts => parts.join('/'))
+      steps.push({
+        phase: 'secondPreprocess',
+        input,
+        output,
+        description: 'Deduplicated pattern parts',
+      })
+      return outputParts
+    }
+  }
+
+  const mm = new PlanMinimatch(pattern, options)
+
+  steps.push({
+    phase: 'finalSet',
+    input: mm.globParts.map(parts => parts.join('/')),
+    output: mm.globParts.map(parts => parts.join('/')),
+    description: 'Final pattern parts after all optimizations',
+  })
+
+  const re = mm.makeRe()
+  return {
+    originalPattern: pattern,
+    optimizationLevel: mm.options.optimizationLevel ?? 1,
+    steps,
+    finalSet: mm.globParts,
+    regexp: re === false ? null : re,
+  }
+}
+minimatch.getOptimizationPlan = getOptimizationPlan
 
 // replace stuff like \* with *
 const globMagic = /[?*]|[+@!]\(.*?\)|\[|\]/
@@ -477,7 +553,7 @@ export class Minimatch {
     this.parseNegate()
 
     // step 2: expand braces
-    this.globSet = [...new Set(this.braceExpand())]
+    this.globSet = [...new Set<string>(this.braceExpand())]
 
     if (options.debug) {
       //oxlint-disable-next-line no-console
