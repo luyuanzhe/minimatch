@@ -68,6 +68,8 @@ export interface MinimatchOptions {
   flipNegate?: boolean
   /** do not collapse multiple `/` into a single `/` */
   preserveMultipleSlashes?: boolean
+  /** strict slashes: do not convert \ to / on Windows */
+  strictSlashes?: boolean
   /**
    * A number indicating the level of optimization that should be done
    * to the pattern prior to parsing and using it for matches.
@@ -396,6 +398,7 @@ export class Minimatch {
   comment: boolean
   empty: boolean
   preserveMultipleSlashes: boolean
+  strictSlashes: boolean
   partial: boolean
   globSet: string[]
   globParts: string[][]
@@ -424,6 +427,7 @@ export class Minimatch {
       this.pattern = this.pattern.replace(/\\/g, '/')
     }
     this.preserveMultipleSlashes = !!options.preserveMultipleSlashes
+    this.strictSlashes = !!options.strictSlashes
     this.regexp = null
     this.negate = false
     this.nonegate = !!options.nonegate
@@ -1424,7 +1428,7 @@ export class Minimatch {
     const options = this.options
 
     // windows: need to use /, not \
-    if (this.isWindows) {
+    if (this.isWindows && !this.strictSlashes) {
       f = f.split('\\').join('/')
     }
 
