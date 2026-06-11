@@ -54,3 +54,9 @@ jobs:
 
       - name: Run Tests
         run: npm test -- -c -t0
+
+      - name: Lint
+        run: npm run lint
+
+      - name: TypeDoc
+        run: npm run typedoc

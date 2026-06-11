@@ -1,0 +1,57 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 19530c3..67b163c 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -54,3 +54,9 @@ jobs:
+ 
+       - name: Run Tests
+         run: npm test -- -c -t0
++
++      - name: Lint
++        run: npm run lint
++
++      - name: TypeDoc
++        run: npm run typedoc
+diff --git a/.github/workflows/typedoc.yml b/.github/workflows/typedoc.yml
+index 08af735..3db5567 100644
+--- a/.github/workflows/typedoc.yml
++++ b/.github/workflows/typedoc.yml
+@@ -23,10 +23,10 @@ jobs:
+     steps:
+       - name: Checkout
+         uses: actions/checkout@v6
+-      - name: Use Nodejs ${{ matrix.node-version }}
++      - name: Use Nodejs 22.x
+         uses: actions/setup-node@v6
+         with:
+-          node-version: 20.x
++          node-version: 22.x
+       - name: Install dependencies
+         run: npm install
+       - name: Generate typedocs
+diff --git a/benchmark.js b/benchmark.js
+index c10a6ac..e670be5 100644
+--- a/benchmark.js
++++ b/benchmark.js
+@@ -1,6 +1,6 @@
+-var m = require('./minimatch.js')
++import { minimatch as m } from './dist/esm/index.js'
++import { expand } from 'brace-expansion'
+ var pattern = '**/*.js'
+-var expand = require('brace-expansion')
+ var files = expand('x/y/z/{1..1000}.js')
+ var start = process.hrtime()
+ 
+diff --git a/package.json b/package.json
+index 211875c..7977033 100644
+--- a/package.json
++++ b/package.json
+@@ -35,7 +35,7 @@
+     "test": "tap",
+     "snap": "tap",
+     "format": "prettier --write .",
+-    "benchmark": "node benchmark/index.js",
++    "benchmark": "node benchmark.js",
+     "typedoc": "typedoc --tsconfig .tshy/esm.json ./src/*.ts",
+     "lint": "oxlint --fix src test",
+     "postsnap": "npm run lint",

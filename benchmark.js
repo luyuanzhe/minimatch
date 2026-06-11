@@ -1,6 +1,6 @@
-var m = require('./minimatch.js')
+import { minimatch as m } from './dist/esm/index.js'
+import { expand } from 'brace-expansion'
 var pattern = '**/*.js'
-var expand = require('brace-expansion')
 var files = expand('x/y/z/{1..1000}.js')
 var start = process.hrtime()
 
