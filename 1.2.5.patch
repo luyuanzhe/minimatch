@@ -1,0 +1,151 @@
+diff --git a/README.md b/README.md
+index 1a068fa..6a17251 100644
+--- a/README.md
++++ b/README.md
+@@ -433,6 +433,24 @@ separators in file paths for comparison.)
+ 
+ Defaults to the value of `process.platform`.
+ 
++### strictSlashes
++
++When `true`, `/` in patterns only matches the POSIX path separator `/`,
++and does not match the Windows path separator `\`. This disables the
++default behavior where `\` is converted to `/` on Windows platforms.
++
++This is useful when you need strict POSIX-style matching on Windows,
++ensuring that patterns with `/` only match paths that actually contain
++`/` characters.
++
++For example:
++
++```js
++minimatch('a\\b\\c', 'a/b/c', { strictSlashes: true }) // false
++minimatch('a\\b\\c', 'a/b/c', { strictSlashes: false }) // true (default)
++minimatch('a/b/c', 'a/b/c', { strictSlashes: true }) // true
++```
++
+ ### maxGlobstarRecursion
+ 
+ Max number of non-adjacent `**` patterns to recursively walk
+diff --git a/src/index.ts b/src/index.ts
+index b20f34f..a2b42df 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -118,6 +118,13 @@ export interface MinimatchOptions {
+    * performance.
+    */
+   maxExtglobRecursion?: number
++  /**
++   * When `true`, `/` in patterns only matches POSIX path separator `/`,
++   * and does not match Windows path separator `\`. Disables the default
++   * `\` → `/` conversion on Windows. Useful for strict POSIX-style
++   * matching on Windows platforms.
++   */
++  strictSlashes?: boolean
+ }
+ 
+ export const minimatch = (
+@@ -405,6 +412,7 @@ export class Minimatch {
+   platform: Platform
+   windowsNoMagicRoot: boolean
+   maxGlobstarRecursion: number
++  strictSlashes: boolean
+ 
+   regexp: false | null | MMRegExp
+   constructor(pattern: string, options: MinimatchOptions = {}) {
+@@ -420,7 +428,8 @@ export class Minimatch {
+     const awe = ('allowWindow' + 'sEscape') as keyof MinimatchOptions
+     this.windowsPathsNoEscape =
+       !!options.windowsPathsNoEscape || options[awe] === false
+-    if (this.windowsPathsNoEscape) {
++    this.strictSlashes = !!options.strictSlashes
++    if (this.windowsPathsNoEscape && !this.strictSlashes) {
+       this.pattern = this.pattern.replace(/\\/g, '/')
+     }
+     this.preserveMultipleSlashes = !!options.preserveMultipleSlashes
+@@ -1424,7 +1433,7 @@ export class Minimatch {
+     const options = this.options
+ 
+     // windows: need to use /, not \
+-    if (this.isWindows) {
++    if (this.isWindows && !this.strictSlashes) {
+       f = f.split('\\').join('/')
+     }
+ 
+diff --git a/test/strict-slashes.ts b/test/strict-slashes.ts
+new file mode 100644
+index 0000000..e892ece
+--- /dev/null
++++ b/test/strict-slashes.ts
+@@ -0,0 +1,71 @@
++import t from 'tap'
++import { minimatch } from '../dist/esm/index.js'
++
++t.test('Windows path with strictSlashes: true should not match', t => {
++  t.equal(
++    minimatch('a\\b\\c', 'a/b/c', { strictSlashes: true }),
++    false,
++    'Windows backslash path should not match POSIX pattern with strictSlashes'
++  )
++  t.end()
++})
++
++t.test('Windows path with strictSlashes: false should match', t => {
++  t.equal(
++    minimatch('a\\b\\c', 'a/b/c', { strictSlashes: false }),
++    true,
++    'Windows backslash path should match POSIX pattern without strictSlashes'
++  )
++  t.end()
++})
++
++t.test('Windows path with default options should match', t => {
++  t.equal(
++    minimatch('a\\b\\c', 'a/b/c'),
++    true,
++    'Windows backslash path should match by default'
++  )
++  t.end()
++})
++
++t.test('POSIX path should not be affected by strictSlashes', t => {
++  t.equal(
++    minimatch('a/b/c', 'a/b/c', { strictSlashes: true }),
++    true,
++    'POSIX path should match POSIX pattern with strictSlashes'
++  )
++  t.equal(
++    minimatch('a/b/c', 'a/b/c', { strictSlashes: false }),
++    true,
++    'POSIX path should match POSIX pattern without strictSlashes'
++  )
++  t.end()
++})
++
++t.test('POSIX path with wildcards should work with strictSlashes', t => {
++  t.equal(
++    minimatch('a/b/c', 'a/*/c', { strictSlashes: true }),
++    true,
++    'Wildcard should work with strictSlashes on POSIX paths'
++  )
++  t.equal(
++    minimatch('a/b/c', 'a/**/c', { strictSlashes: true }),
++    true,
++    'Globstar should work with strictSlashes on POSIX paths'
++  )
++  t.end()
++})
++
++t.test('mixed paths with strictSlashes', t => {
++  t.equal(
++    minimatch('a/b\\c', 'a/b/c', { strictSlashes: true }),
++    false,
++    'Mixed path should not match with strictSlashes'
++  )
++  t.equal(
++    minimatch('a/b\\c', 'a/b/c', { strictSlashes: false }),
++    true,
++    'Mixed path should match without strictSlashes'
++  )
++  t.end()
++})
