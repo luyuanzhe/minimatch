@@ -1,0 +1,8 @@
+diff --git a/test_minimatch.js b/test_minimatch.js
+new file mode 100644
+index 0000000..18bab39
+--- /dev/null
++++ b/test_minimatch.js
+@@ -0,0 +1,2 @@
++const fs = require('fs');
++console.log(require('./src/index.js').minimatch('foobar', '!(foo)bar'));
