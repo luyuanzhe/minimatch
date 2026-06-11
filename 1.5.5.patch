@@ -1,0 +1,164 @@
+diff --git a/src/index.ts b/src/index.ts
+index b20f34f..5502daa 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -309,6 +309,11 @@ export const defaults = (def: MinimatchOptions): typeof minimatch => {
+       options: MinimatchOptions = {},
+     ) => orig.match(list, pattern, ext(def, options)),
+ 
++    getOptimizationPlan: (
++      pattern: string,
++      options: MinimatchOptions = {},
++    ) => orig.getOptimizationPlan(pattern, ext(def, options)),
++
+     sep: orig.sep,
+     GLOBSTAR: GLOBSTAR as typeof GLOBSTAR,
+   })
+@@ -1474,6 +1479,147 @@ export class Minimatch {
+     return minimatch.defaults(def).Minimatch
+   }
+ }
++
++export interface OptimizationStep {
++  phase: 'braceExpand' | 'firstPreprocess' | 'secondPreprocess' | 'finalSet'
++  input: string[]
++  output: string[]
++  description: string
++}
++
++export interface OptimizationPlan {
++  originalPattern: string
++  optimizationLevel: number
++  steps: OptimizationStep[]
++  finalSet: string[][]
++  regexp: RegExp | null
++}
++
++export const getOptimizationPlan = (
++  pattern: string,
++  options: MinimatchOptions = {},
++): OptimizationPlan => {
++  assertValidPattern(pattern)
++
++  const mm = new Minimatch(pattern, options)
++  const optimizationLevel = mm.options.optimizationLevel ?? 1
++
++  if (mm.comment || mm.empty) {
++    return {
++      originalPattern: pattern,
++      optimizationLevel,
++      steps: [],
++      finalSet: [],
++      regexp: null,
++    }
++  }
++
++  const steps: OptimizationStep[] = []
++
++  steps.push({
++    phase: 'braceExpand',
++    input: [mm.pattern],
++    output: [...mm.globSet],
++    description: 'Expand brace patterns into separate patterns',
++  })
++
++  const rawGlobParts = mm.globSet.map(s => mm.slashSplit(s))
++
++  if (optimizationLevel >= 2) {
++    const inputCopy = rawGlobParts.map(p => [...p])
++    if (mm.options.noglobstar) {
++      for (const partset of inputCopy) {
++        for (let j = 0; j < partset.length; j++) {
++          if (partset[j] === '**') {
++            partset[j] = '*'
++          }
++        }
++      }
++    }
++    const afterFirst = mm.firstPhasePreProcess(inputCopy)
++    steps.push({
++      phase: 'firstPreprocess',
++      input: rawGlobParts.map(p => p.join('/')),
++      output: afterFirst.map(p => p.join('/')),
++      description:
++        'First phase: resolve .. segments, collapse adjacent **, expand **/../ patterns',
++    })
++
++    const afterFirstCopy = afterFirst.map(p => [...p])
++    const afterSecond = mm.secondPhasePreProcess(afterFirstCopy)
++    steps.push({
++      phase: 'secondPreprocess',
++      input: afterFirst.map(p => p.join('/')),
++      output: afterSecond.map(p => p.join('/')),
++      description: 'Second phase: deduplicate and merge overlapping patterns',
++    })
++  } else if (optimizationLevel >= 1) {
++    const inputCopy = rawGlobParts.map(p => [...p])
++    if (mm.options.noglobstar) {
++      for (const partset of inputCopy) {
++        for (let j = 0; j < partset.length; j++) {
++          if (partset[j] === '**') {
++            partset[j] = '*'
++          }
++        }
++      }
++    }
++    const afterLevelOne = mm.levelOneOptimize(inputCopy)
++    steps.push({
++      phase: 'firstPreprocess',
++      input: rawGlobParts.map(p => p.join('/')),
++      output: afterLevelOne.map(p => p.join('/')),
++      description:
++        'Level 1 optimization: resolve .. segments and collapse adjacent **',
++    })
++  } else {
++    const inputCopy = rawGlobParts.map(p => [...p])
++    if (mm.options.noglobstar) {
++      for (const partset of inputCopy) {
++        for (let j = 0; j < partset.length; j++) {
++          if (partset[j] === '**') {
++            partset[j] = '*'
++          }
++        }
++      }
++    }
++    const afterAdjascent = mm.adjascentGlobstarOptimize(inputCopy)
++    steps.push({
++      phase: 'firstPreprocess',
++      input: rawGlobParts.map(p => p.join('/')),
++      output: afterAdjascent.map(p => p.join('/')),
++      description: 'Level 0 optimization: collapse adjacent ** only',
++    })
++  }
++
++  const finalSetAsStrings = mm.set.map(p =>
++    p.map(s => {
++      if (typeof s === 'string') return s
++      if (s === GLOBSTAR) return '**'
++      return s.source
++    }),
++  )
++
++  steps.push({
++    phase: 'finalSet',
++    input: mm.globParts.map(p => p.join('/')),
++    output: finalSetAsStrings.map(p => p.join('/')),
++    description:
++      'Parse glob parts into final pattern set with regex and GLOBSTAR tokens',
++  })
++
++  const regexp = mm.makeRe()
++
++  return {
++    originalPattern: pattern,
++    optimizationLevel,
++    steps,
++    finalSet: finalSetAsStrings,
++    regexp: regexp === false ? null : regexp,
++  }
++}
++minimatch.getOptimizationPlan = getOptimizationPlan
++
+ /* c8 ignore start */
+ export { AST } from './ast.js'
+ export { escape } from './escape.js'
