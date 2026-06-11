@@ -303,6 +303,11 @@ export const defaults = (def: MinimatchOptions): typeof minimatch => {
     braceExpand: (pattern: string, options: MinimatchOptions = {}) =>
       orig.braceExpand(pattern, ext(def, options)),
 
+    getOptimizationPlan: (
+      pattern: string,
+      options: MinimatchOptions = {},
+    ) => orig.getOptimizationPlan(pattern, ext(def, options)),
+
     match: (
       list: string[],
       pattern: string,
@@ -338,7 +343,7 @@ export const braceExpand = (
     return [pattern]
   }
 
-  return expand(pattern, { max: options.braceExpandMax })
+  return expand(pattern, { max: options.braceExpandMax }) as string[]
 }
 minimatch.braceExpand = braceExpand
 
@@ -384,6 +389,177 @@ export type MMRegExp = RegExp & {
 
 export type ParseReturnFiltered = string | MMRegExp | typeof GLOBSTAR
 export type ParseReturn = ParseReturnFiltered | false
+
+export interface OptimizationPlanStep {
+  phase: 'braceExpand' | 'firstPreprocess' | 'secondPreprocess' | 'finalSet'
+  input: string[]
+  output: string[]
+  description: string
+}
+
+export interface OptimizationPlan {
+  originalPattern: string
+  optimizationLevel: number
+  steps: OptimizationPlanStep[]
+  finalSet: string[][]
+  regexp: RegExp | null
+}
+
+const cloneGlobParts = (globParts: string[][]) =>
+  globParts.map(parts => [...parts])
+
+const globPartsToStrings = (globParts: string[][]) =>
+  globParts.map(parts => parts.join('/'))
+
+const normalizeNoglobstar = (
+  globParts: string[][],
+  noglobstar: boolean,
+) =>
+  !noglobstar ?
+    cloneGlobParts(globParts)
+  : globParts.map(parts => parts.map(part => (part === '**' ? '*' : part)))
+
+const getSkippedOptimizationPlan = (
+  originalPattern: string,
+  optimizationLevel: number,
+  input: string[],
+  description: string,
+): OptimizationPlan => ({
+  originalPattern,
+  optimizationLevel,
+  steps: [
+    {
+      phase: 'braceExpand',
+      input,
+      output: [],
+      description,
+    },
+    {
+      phase: 'firstPreprocess',
+      input: [],
+      output: [],
+      description: 'Skipped because there are no expanded patterns to preprocess.',
+    },
+    {
+      phase: 'secondPreprocess',
+      input: [],
+      output: [],
+      description: 'Skipped because there are no preprocessed patterns to deduplicate.',
+    },
+    {
+      phase: 'finalSet',
+      input: [],
+      output: [],
+      description: 'No final pattern set was produced.',
+    },
+  ],
+  finalSet: [],
+  regexp: null,
+})
+
+export const getOptimizationPlan = (
+  pattern: string,
+  options: MinimatchOptions = {},
+): OptimizationPlan => {
+  assertValidPattern(pattern)
+
+  const mm = new Minimatch(pattern, options)
+  const optimizationLevel = mm.options.optimizationLevel ?? 1
+
+  if (mm.comment) {
+    return getSkippedOptimizationPlan(
+      pattern,
+      optimizationLevel,
+      [pattern],
+      'Pattern is treated as a comment, so optimization is skipped.',
+    )
+  }
+
+  if (mm.empty) {
+    return getSkippedOptimizationPlan(
+      pattern,
+      optimizationLevel,
+      [pattern],
+      'Empty patterns bypass optimization and only match empty strings.',
+    )
+  }
+
+  const steps: OptimizationPlanStep[] = []
+  const braceInput = [mm.pattern]
+  const braceOutput = [...new Set(mm.braceExpand())]
+  steps.push({
+    phase: 'braceExpand',
+    input: braceInput,
+    output: braceOutput,
+    description:
+      mm.pattern === pattern ?
+        'Expanded braces and removed duplicate expansions before preprocessing.'
+      : 'Expanded braces and removed duplicate expansions on the normalized internal pattern before preprocessing.',
+  })
+
+  const rawGlobParts = braceOutput.map(expanded => mm.slashSplit(expanded))
+  const firstInput = normalizeNoglobstar(
+    rawGlobParts,
+    !!mm.options.noglobstar,
+  )
+  const firstOutput =
+    optimizationLevel >= 2 ?
+      mm.firstPhasePreProcess(cloneGlobParts(firstInput))
+    : optimizationLevel >= 1 ?
+      mm.levelOneOptimize(cloneGlobParts(firstInput))
+    : mm.adjascentGlobstarOptimize(cloneGlobParts(firstInput))
+  steps.push({
+    phase: 'firstPreprocess',
+    input: globPartsToStrings(firstInput),
+    output: globPartsToStrings(firstOutput),
+    description:
+      optimizationLevel >= 2 ?
+        mm.options.noglobstar ?
+          'Converted globstars to stars and applied the aggressive first preprocessing phase.'
+        : 'Applied the aggressive first preprocessing phase.'
+      : optimizationLevel >= 1 ?
+        mm.options.noglobstar ?
+          'Converted globstars to stars and applied level 1 preprocessing.'
+        : 'Applied level 1 preprocessing.'
+      : mm.options.noglobstar ?
+        'Converted globstars to stars and collapsed adjacent globstars only.'
+      : 'Collapsed adjacent globstars only.',
+  })
+
+  const secondInput = cloneGlobParts(firstOutput)
+  const secondOutput =
+    optimizationLevel >= 2 ?
+      mm.secondPhasePreProcess(cloneGlobParts(secondInput))
+    : cloneGlobParts(secondInput)
+  steps.push({
+    phase: 'secondPreprocess',
+    input: globPartsToStrings(secondInput),
+    output: globPartsToStrings(secondOutput),
+    description:
+      optimizationLevel >= 2 ?
+        'Applied the second preprocessing phase to deduplicate equivalent pattern sets.'
+      : 'Skipped because optimizationLevel is below 2.',
+  })
+
+  const finalSet = cloneGlobParts(secondOutput)
+  steps.push({
+    phase: 'finalSet',
+    input: globPartsToStrings(secondOutput),
+    output: globPartsToStrings(finalSet),
+    description:
+      'Final preprocessed pattern sets used to build the matcher and resulting regular expression.',
+  })
+
+  const regexp = mm.makeRe()
+
+  return {
+    originalPattern: pattern,
+    optimizationLevel,
+    steps,
+    finalSet,
+    regexp: regexp instanceof RegExp ? regexp : null,
+  }
+}
 
 export class Minimatch {
   options: MinimatchOptions
@@ -1483,3 +1659,4 @@ minimatch.AST = AST
 minimatch.Minimatch = Minimatch
 minimatch.escape = escape
 minimatch.unescape = unescape
+minimatch.getOptimizationPlan = getOptimizationPlan
