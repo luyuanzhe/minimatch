@@ -3,6 +3,12 @@ import { assertValidPattern } from './assert-valid-pattern.js'
 import type { ExtglobType } from './ast.js'
 import { AST } from './ast.js'
 import { escape } from './escape.js'
+import {
+  firstPhasePreProcess,
+  levelOneOptimize,
+  partsMatch,
+  secondPhasePreProcess,
+} from './optimize.js'
 import { unescape } from './unescape.js'
 
 export type Platform =
@@ -600,23 +606,7 @@ export class Minimatch {
 
   // get rid of adjascent ** and resolve .. portions
   levelOneOptimize(globParts: string[][]) {
-    return globParts.map(parts => {
-      parts = parts.reduce((set: string[], part) => {
-        const prev = set[set.length - 1]
-        if (part === '**' && prev === '**') {
-          return set
-        }
-        if (part === '..') {
-          if (prev && prev !== '..' && prev !== '.' && prev !== '**') {
-            set.pop()
-            return set
-          }
-        }
-        set.push(part)
-        return set
-      }, [])
-      return parts.length === 0 ? [''] : parts
-    })
+    return levelOneOptimize(globParts, this.options)
   }
 
   levelTwoFileOptimize(parts: string | string[]) {
@@ -688,86 +678,7 @@ export class Minimatch {
   // **/*/<rest> -> */**/<rest> <== not valid because ** doesn't follow
   // this WOULD be allowed if ** did follow symlinks, or * didn't
   firstPhasePreProcess(globParts: string[][]) {
-    let didSomething = false
-    do {
-      didSomething = false
-      // <pre>/**/../<p>/<p>/<rest> -> {<pre>/../<p>/<p>/<rest>,<pre>/**/<p>/<p>/<rest>}
-      for (let parts of globParts) {
-        let gs: number = -1
-        while (-1 !== (gs = parts.indexOf('**', gs + 1))) {
-          let gss: number = gs
-          while (parts[gss + 1] === '**') {
-            // <pre>/**/**/<rest> -> <pre>/**/<rest>
-            gss++
-          }
-          // eg, if gs is 2 and gss is 4, that means we have 3 **
-          // parts, and can remove 2 of them.
-          if (gss > gs) {
-            parts.splice(gs + 1, gss - gs)
-          }
-
-          let next = parts[gs + 1]
-          const p = parts[gs + 2]
-          const p2 = parts[gs + 3]
-          if (next !== '..') continue
-          if (
-            !p ||
-            p === '.' ||
-            p === '..' ||
-            !p2 ||
-            p2 === '.' ||
-            p2 === '..'
-          ) {
-            continue
-          }
-          didSomething = true
-          // edit parts in place, and push the new one
-          parts.splice(gs, 1)
-          const other = parts.slice(0)
-          other[gs] = '**'
-          globParts.push(other)
-          gs--
-        }
-
-        // <pre>/<e>/<rest> -> <pre>/<rest>
-        if (!this.preserveMultipleSlashes) {
-          for (let i = 1; i < parts.length - 1; i++) {
-            const p = parts[i]
-            // don't squeeze out UNC patterns
-            if (i === 1 && p === '' && parts[0] === '') continue
-            if (p === '.' || p === '') {
-              didSomething = true
-              parts.splice(i, 1)
-              i--
-            }
-          }
-          if (
-            parts[0] === '.' &&
-            parts.length === 2 &&
-            (parts[1] === '.' || parts[1] === '')
-          ) {
-            didSomething = true
-            parts.pop()
-          }
-        }
-
-        // <pre>/<p>/../<rest> -> <pre>/<rest>
-        let dd: number = 0
-        while (-1 !== (dd = parts.indexOf('..', dd + 1))) {
-          const p = parts[dd - 1]
-          if (p && p !== '.' && p !== '..' && p !== '**') {
-            didSomething = true
-            const needDot = dd === 1 && parts[dd + 1] === '**'
-            const splin = needDot ? ['.'] : []
-            parts.splice(dd - 1, 2, ...splin)
-            if (parts.length === 0) parts.push('')
-            dd -= 2
-          }
-        }
-      }
-    } while (didSomething)
-
-    return globParts
+    return firstPhasePreProcess(globParts, this.options)
   }
 
   // second phase: multi-pattern dedupes
@@ -778,21 +689,7 @@ export class Minimatch {
   // {<pre>/**/<rest>,<pre>/**/<p>/<rest>} -> <pre>/**/<rest>
   // ^-- not valid because ** doens't follow symlinks
   secondPhasePreProcess(globParts: string[][]): string[][] {
-    for (let i = 0; i < globParts.length - 1; i++) {
-      for (let j = i + 1; j < globParts.length; j++) {
-        const matched = this.partsMatch(
-          globParts[i],
-          globParts[j],
-          !this.preserveMultipleSlashes,
-        )
-        if (matched) {
-          globParts[i] = []
-          globParts[j] = matched
-          break
-        }
-      }
-    }
-    return globParts.filter(gs => gs.length)
+    return secondPhasePreProcess(globParts, this.options)
   }
 
   partsMatch(
@@ -800,50 +697,7 @@ export class Minimatch {
     b: string[],
     emptyGSMatch: boolean = false,
   ): false | string[] {
-    let ai = 0
-    let bi = 0
-    let result: string[] = []
-    let which: string = ''
-    while (ai < a.length && bi < b.length) {
-      if (a[ai] === b[bi]) {
-        result.push(which === 'b' ? b[bi] : a[ai])
-        ai++
-        bi++
-      } else if (emptyGSMatch && a[ai] === '**' && b[bi] === a[ai + 1]) {
-        result.push(a[ai])
-        ai++
-      } else if (emptyGSMatch && b[bi] === '**' && a[ai] === b[bi + 1]) {
-        result.push(b[bi])
-        bi++
-      } else if (
-        a[ai] === '*' &&
-        b[bi] &&
-        (this.options.dot || !b[bi].startsWith('.')) &&
-        b[bi] !== '**'
-      ) {
-        if (which === 'b') return false
-        which = 'a'
-        result.push(a[ai])
-        ai++
-        bi++
-      } else if (
-        b[bi] === '*' &&
-        a[ai] &&
-        (this.options.dot || !a[ai].startsWith('.')) &&
-        a[ai] !== '**'
-      ) {
-        if (which === 'a') return false
-        which = 'b'
-        result.push(b[bi])
-        ai++
-        bi++
-      } else {
-        return false
-      }
-    }
-    // if we fall out of the loop, it means they two are identical
-    // as long as their lengths match
-    return a.length === b.length && result
+    return partsMatch(a, b, this.options, emptyGSMatch)
   }
 
   parseNegate() {
