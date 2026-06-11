@@ -1,0 +1,96 @@
+diff --git a/README.md b/README.md
+index 1a068fa..429c1a2 100644
+--- a/README.md
++++ b/README.md
+@@ -350,6 +350,13 @@ paths](#windows).
+ For legacy reasons, this is also set if
+ `options.allowWindowsEscape` is set to the exact value `false`.
+ 
++### strictSlashes
++
++When set, `/` in a pattern only matches `/` in the file path. On
++Windows platforms, this disables the default behavior of treating
++`\\` as `/` for file path comparison, so a path like `a\\b\\c`
++will not match the pattern `a/b/c`.
++
+ ### windowsNoMagicRoot
+ 
+ When a pattern starts with a UNC path or drive letter, and in
+diff --git a/src/index.ts b/src/index.ts
+index b20f34f..17a7c24 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -33,6 +33,8 @@ export interface MinimatchOptions {
+   noext?: boolean
+   /** return the pattern if nothing matches */
+   nonull?: boolean
++  /** only treat `/` as a path separator when matching paths */
++  strictSlashes?: boolean
+   /** treat `\\` as a path separator, not an escape character */
+   windowsPathsNoEscape?: boolean
+   /**
+@@ -396,6 +398,7 @@ export class Minimatch {
+   comment: boolean
+   empty: boolean
+   preserveMultipleSlashes: boolean
++  strictSlashes: boolean
+   partial: boolean
+   globSet: string[]
+   globParts: string[][]
+@@ -424,6 +427,7 @@ export class Minimatch {
+       this.pattern = this.pattern.replace(/\\/g, '/')
+     }
+     this.preserveMultipleSlashes = !!options.preserveMultipleSlashes
++    this.strictSlashes = !!options.strictSlashes
+     this.regexp = null
+     this.negate = false
+     this.nonegate = !!options.nonegate
+@@ -1424,7 +1428,7 @@ export class Minimatch {
+     const options = this.options
+ 
+     // windows: need to use /, not \
+-    if (this.isWindows) {
++    if (this.isWindows && !this.strictSlashes) {
+       f = f.split('\\').join('/')
+     }
+ 
+diff --git a/test/strict-slashes.ts b/test/strict-slashes.ts
+new file mode 100644
+index 0000000..2f6ad07
+--- /dev/null
++++ b/test/strict-slashes.ts
+@@ -0,0 +1,34 @@
++import t from 'tap'
++import { minimatch } from '../dist/esm/index.js'
++
++t.test('strictSlashes keeps windows separators distinct', t => {
++  t.equal(
++    minimatch('a\\b\\c', 'a/b/c', {
++      platform: 'win32',
++      strictSlashes: true,
++    }),
++    false,
++  )
++  t.end()
++})
++
++t.test('strictSlashes defaults to false', t => {
++  t.equal(
++    minimatch('a\\b\\c', 'a/b/c', {
++      platform: 'win32',
++    }),
++    true,
++  )
++  t.end()
++})
++
++t.test('strictSlashes does not affect POSIX paths', t => {
++  t.equal(
++    minimatch('a/b/c', 'a/b/c', {
++      platform: 'win32',
++      strictSlashes: true,
++    }),
++    true,
++  )
++  t.end()
++})
