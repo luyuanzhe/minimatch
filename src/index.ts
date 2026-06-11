@@ -309,6 +309,11 @@ export const defaults = (def: MinimatchOptions): typeof minimatch => {
       options: MinimatchOptions = {},
     ) => orig.match(list, pattern, ext(def, options)),
 
+    getOptimizationPlan: (
+      pattern: string,
+      options: MinimatchOptions = {},
+    ) => orig.getOptimizationPlan(pattern, ext(def, options)),
+
     sep: orig.sep,
     GLOBSTAR: GLOBSTAR as typeof GLOBSTAR,
   })
@@ -1474,6 +1479,198 @@ export class Minimatch {
     return minimatch.defaults(def).Minimatch
   }
 }
+
+export type OptimizationPlanStep = {
+  phase: 'braceExpand' | 'firstPreprocess' | 'secondPreprocess' | 'finalSet'
+  input: string[]
+  output: string[]
+  description: string
+}
+
+export type OptimizationPlan = {
+  originalPattern: string
+  optimizationLevel: number
+  steps: OptimizationPlanStep[]
+  finalSet: string[][]
+  regexp: RegExp | null
+}
+
+const filterToStr = (p: ParseReturnFiltered): string => {
+  if (typeof p === 'string') return p
+  if (p === GLOBSTAR) return '**'
+  if (p instanceof RegExp) return p.source
+  return String(p)
+}
+
+export const getOptimizationPlan = (
+  pattern: string,
+  options: MinimatchOptions = {},
+): OptimizationPlan => {
+  assertValidPattern(pattern)
+
+  const optimizationLevel = options.optimizationLevel ?? 1
+  const steps: OptimizationPlanStep[] = []
+
+  const mm = new Minimatch(pattern, options)
+
+  if (mm.comment || mm.empty) {
+    return {
+      originalPattern: pattern,
+      optimizationLevel,
+      steps: [],
+      finalSet: [],
+      regexp: null,
+    }
+  }
+
+  // step 1: brace expansion
+  const braceExpanded = [...new Set(braceExpand(mm.pattern, mm.options))]
+  steps.push({
+    phase: 'braceExpand',
+    input: [pattern],
+    output: braceExpanded.slice(),
+    description:
+      'Expand brace patterns like {a,b} into multiple patterns',
+  })
+
+  // step 2: slash split each expanded glob
+  let currentParts = braceExpanded.map(s => mm.slashSplit(s))
+
+  // step 3: noglobstar conversion (if applicable)
+  if (mm.options.noglobstar) {
+    for (const partset of currentParts) {
+      for (let j = 0; j < partset.length; j++) {
+        if (partset[j] === '**') {
+          partset[j] = '*'
+        }
+      }
+    }
+  }
+
+  // step 4: preprocessing based on optimizationLevel
+  if (optimizationLevel >= 2) {
+    const firstInput = currentParts.map(p => p.join('/'))
+    currentParts = mm.firstPhasePreProcess(
+      currentParts.map(p => [...p]),
+    )
+    steps.push({
+      phase: 'firstPreprocess',
+      input: firstInput,
+      output: currentParts.map(p => p.join('/')),
+      description:
+        'First phase: resolve **/.. patterns, remove empty/./ parts, and expand alternative branches',
+    })
+
+    const secondInput = currentParts.map(p => p.join('/'))
+    currentParts = mm.secondPhasePreProcess(
+      currentParts.map(p => [...p]),
+    )
+    steps.push({
+      phase: 'secondPreprocess',
+      input: secondInput,
+      output: currentParts.map(p => p.join('/')),
+      description:
+        'Second phase: deduplicate overlapping pattern sets',
+    })
+  } else if (optimizationLevel >= 1) {
+    const firstInput = currentParts.map(p => p.join('/'))
+    currentParts = mm.levelOneOptimize(
+      currentParts.map(p => [...p]),
+    )
+    steps.push({
+      phase: 'firstPreprocess',
+      input: firstInput,
+      output: currentParts.map(p => p.join('/')),
+      description:
+        'Level 1 optimization: remove adjacent ** and resolve .. portions',
+    })
+  } else {
+    const firstInput = currentParts.map(p => p.join('/'))
+    currentParts = mm.adjascentGlobstarOptimize(
+      currentParts.map(p => [...p]),
+    )
+    steps.push({
+      phase: 'firstPreprocess',
+      input: firstInput,
+      output: currentParts.map(p => p.join('/')),
+      description:
+        'Level 0 optimization: collapse adjacent ** portions only',
+    })
+  }
+
+  // step 5: parse each part into regex/string/GLOBSTAR
+  const parsedSet = currentParts.map((s) => {
+    if (mm.isWindows && mm.windowsNoMagicRoot) {
+      const isUNC =
+        s[0] === '' &&
+        s[1] === '' &&
+        (s[2] === '?' || !globMagic.test(s[2])) &&
+        !globMagic.test(s[3])
+      const isDrive = /^[a-z]:/i.test(s[0])
+      if (isUNC) {
+        return [
+          ...s.slice(0, 4),
+          ...s.slice(4).map(ss => mm.parse(ss)),
+        ]
+      } else if (isDrive) {
+        return [s[0], ...s.slice(1).map(ss => mm.parse(ss))]
+      }
+    }
+    return s.map(ss => mm.parse(ss))
+  })
+
+  const finalSet = parsedSet.filter(
+    s => s.indexOf(false) === -1,
+  ) as ParseReturnFiltered[][]
+
+  // reset ? in UNC paths on windows
+  if (mm.isWindows) {
+    for (let i = 0; i < finalSet.length; i++) {
+      const p = finalSet[i]
+      if (
+        p[0] === '' &&
+        p[1] === '' &&
+        currentParts[i][2] === '?' &&
+        typeof p[3] === 'string' &&
+        /^[a-z]:$/i.test(p[3])
+      ) {
+        p[2] = '?'
+      }
+    }
+  }
+
+  const finalSetInput = currentParts.map(p => p.join('/'))
+  const finalSetOutput = finalSet.map(patternParts =>
+    patternParts.map(filterToStr),
+  )
+
+  steps.push({
+    phase: 'finalSet',
+    input: finalSetInput,
+    output: finalSetOutput.map(parts => parts.join('/')),
+    description:
+      'Parse each pattern part into a regular expression or literal string',
+  })
+
+  let regexp: RegExp | null = null
+  try {
+    const re = mm.makeRe()
+    regexp = re === false ? null : re
+  } catch {
+    regexp = null
+  }
+
+  return {
+    originalPattern: pattern,
+    optimizationLevel,
+    steps,
+    finalSet: currentParts,
+    regexp,
+  }
+}
+
+minimatch.getOptimizationPlan = getOptimizationPlan
+
 /* c8 ignore start */
 export { AST } from './ast.js'
 export { escape } from './escape.js'
